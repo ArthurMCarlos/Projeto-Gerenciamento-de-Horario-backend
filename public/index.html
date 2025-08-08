@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciamento de Horas de Trabalho</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>⏰ Gerenciamento de Horas</h1>
+            <p>Controle suas horas de trabalho com precisão</p>
+        </header>
+        <div class="filter-section">
+            <div class="filter-grid">
+                <div class="filter-item">
+                    <label for="monthFilter">📅 Filtrar por Mês</label>
+                    <select id="monthFilter" class="filter-input" onchange="filterByMonth()">
+                        <option value="">Todos os meses</option>
+                    </select>
+                </div>
+                <div class="filter-item">
+                    <label>⚖️ Saldo de Horas</label>
+                    <div id="balanceIndicator" class="balance-indicator balance-neutral">
+                        Calculando...
+                    </div>
+                </div>
+                <div class="filter-item">
+                    <label>📊 Dias Filtrados</label>
+                    <div class="balance-indicator balance-neutral" id="filteredCount">
+                        0 dias
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="controls">
+            <div class="controls-group">
+                <button class="btn btn-primary" onclick="addNewDay()">
+                    ➕ Adicionar Dia
+                </button>
+                <button class="btn btn-success" onclick="exportToExcel()">
+                    📊 Exportar Excel
+                </button>
+                <button class="btn btn-warning" onclick="clearAllData()">
+                    🗑️ Limpar Dados
+                </button>
+            </div>
+            <div class="controls-group">
+                <button class="btn theme-toggle" onclick="toggleTheme()">
+                    🌓 Tema
+                </button>
+            </div>
+        </div>
+        <div class="table-container">
+            <table id="hoursTable">
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Entrada</th>
+                        <th>Saída Intervalo</th>
+                        <th>Retorno Intervalo</th>
+                        <th>Saída Final</th>
+                        <th>Total Horas</th>
+                        <th>Horas Extras</th>
+                        <th>Horas Negativas</th>
+                        <th>Sábado</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="hoursTableBody">
+                </tbody>
+            </table>
+        </div>
+        <div class="summary" id="summary">
+            <h3>📈 Resumo do Período</h3>
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <div class="summary-label">Total de Horas Trabalhadas</div>
+                    <div class="summary-value" id="totalHours">0:00</div>
+                </div>
+                <div class="summary-item positive">
+                    <div class="summary-label">Total de Horas Extras</div>
+                    <div class="summary-value hours-positive" id="totalExtraHours">0:00</div>
+                </div>
+                <div class="summary-item negative">
+                    <div class="summary-label">Total de Horas Negativas</div>
+                    <div class="summary-value hours-negative" id="totalNegativeHours">0:00</div>
+                </div>
+                <div class="summary-item warning">
+                    <div class="summary-label">Valor Estimado Horas Extras</div>
+                    <div class="summary-value currency" id="extraHoursValue">R$ 0,00</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/script.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</body>
+</html>
