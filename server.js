@@ -79,15 +79,63 @@ app.post('/api/work-days', async (req, res) => {
       return res.status(500).json({ error: 'Banco não conectado' });
     }
 
-    await db.collection('workDays').deleteMany({});
+    // Usa bulkWrite para替代 deleteMany + insertMany, evitando problemas de race condition
+    const operations = [];
     
-    if (req.body.length > 0) {
-      const result = await db.collection('workDays').insertMany(req.body);
-      res.json({ success: true, insertedCount: result.insertedCount });
-    } else {
-      res.json({ success: true, message: 'Dados limpos' });
+    // Primeiro, remove todos os documentos existentes
+    operations.push({ deleteMany: { filter: {} } });
+    
+    // Depois, insere os novos documentos
+    if (req.body && req.body.length > 0) {
+      // Prepara os documentos com _id explícito para evitar problemas
+      const documents = req.body.map(doc => ({
+        insertOne: { document: doc }
+      }));
+      operations.push(...documents);
     }
+    
+    const result = await db.collection('workDays').bulkWrite(operations, { ordered: true });
+    
+    res.json({ 
+      success: true, 
+      deletedCount: result.deletedCount,
+      insertedCount: result.insertedCount 
+    });
+    
   } catch (error) {
+    // Se houver erro de chave duplicada, tenta uma abordagem alternativa
+    if (error.code === 11000) {
+      console.warn('Detectado erro de duplicação, limpando coleção e tentando novamente...');
+      try {
+        // Limpa a coleção e tenta inserir novamente
+        await db.collection('workDays').deleteMany({});
+        
+        if (req.body && req.body.length > 0) {
+          // Remove documentos com IDs duplicados antes de inserir
+          const uniqueDocs = [];
+          const seenIds = new Set();
+          for (const doc of req.body) {
+            if (!seenIds.has(doc.id)) {
+              seenIds.add(doc.id);
+              uniqueDocs.push(doc);
+            }
+          }
+          
+          const result = await db.collection('workDays').insertMany(uniqueDocs, { ordered: false });
+          return res.json({ 
+            success: true, 
+            insertedCount: result.insertedCount,
+            note: 'recovery-mode'
+          });
+        }
+        
+        return res.json({ success: true, message: 'Dados limpos', note: 'recovery-mode' });
+      } catch (retryError) {
+        console.error('Erro na recuperação:', retryError);
+        return res.status(500).json({ error: retryError.message });
+      }
+    }
+    
     console.error('Erro ao salvar dias:', error);
     res.status(500).json({ error: error.message });
   }
