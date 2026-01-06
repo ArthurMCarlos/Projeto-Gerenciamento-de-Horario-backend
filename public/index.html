@@ -11,6 +11,14 @@
         <header class="header">
             <h1>⏰ Gerenciamento de Horas</h1>
             <p>Controle suas horas de trabalho com precisão</p>
+            <div class="header-actions">
+                <button class="btn btn-secondary" onclick="openSettings()">
+                    ⚙️ Configurações
+                </button>
+                <button class="btn btn-secondary" onclick="openReports()">
+                    📊 Relatórios
+                </button>
+            </div>
         </header>
         <div class="filter-section">
             <div class="filter-grid">
@@ -91,10 +99,265 @@
                     <div class="summary-label">Valor Estimado Horas Extras</div>
                     <div class="summary-value currency" id="extraHoursValue">R$ 0,00</div>
                 </div>
+                <div class="summary-item info">
+                    <div class="summary-label">Média Diária</div>
+                    <div class="summary-value" id="dailyAverage">0:00</div>
+                </div>
+                <div class="summary-item">
+                    <div class="summary-label">Dias Trabalhados</div>
+                    <div class="summary-value" id="workDaysCount">0</div>
+                </div>
             </div>
+        </div>
+
+        <!-- Modal de Configurações -->
+        <div id="settingsModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>⚙️ Configurações</h2>
+                    <button class="modal-close" onclick="closeSettings()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="settings-section">
+                        <h3>Parâmetros de Cálculo</h3>
+                        <div class="settings-grid">
+                            <div class="settings-item">
+                                <label for="standardHours">Jornada Diária (horas)</label>
+                                <input type="number" id="standardHours" min="1" max="12" step="0.5" value="8">
+                            </div>
+                            <div class="settings-item">
+                                <label for="standardMinutes">Minutos</label>
+                                <input type="number" id="standardMinutes" min="0" max="59" value="48">
+                            </div>
+                            <div class="settings-item">
+                                <label for="saturdayHours">Jornada Sábado (horas)</label>
+                                <input type="number" id="saturdayHours" min="0" max="12" step="0.5" value="8">
+                            </div>
+                            <div class="settings-item">
+                                <label for="salaryBase">Salário Base (R$)</label>
+                                <input type="number" id="salaryBase" min="0" step="0.01" value="1625.75">
+                            </div>
+                            <div class="settings-item">
+                                <label for="extraMultiplier">Multiplicador Hora Extra</label>
+                                <input type="number" id="extraMultiplier" min="1" max="3" step="0.1" value="1.5">
+                            </div>
+                            <div class="settings-item">
+                                <label for="monthlyHours">Horas Mensais Padrão</label>
+                                <input type="number" id="monthlyHours" min="100" max="300" value="220">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-section">
+                        <h3>Preferências da Interface</h3>
+                        <div class="settings-grid">
+                            <div class="settings-item">
+                                <label for="defaultView">Visualização Padrão</label>
+                                <select id="defaultView">
+                                    <option value="table">Tabela</option>
+                                    <option value="cards">Cards</option>
+                                </select>
+                            </div>
+                            <div class="settings-item">
+                                <label for="dateFormat">Formato de Data</label>
+                                <select id="dateFormat">
+                                    <option value="dd/mm/yyyy">DD/MM/AAAA</option>
+                                    <option value="mm/dd/yyyy">MM/DD/AAAA</option>
+                                    <option value="yyyy-mm/dd">AAAA-MM-DD</option>
+                                </select>
+                            </div>
+                            <div class="settings-item toggle-item">
+                                <label for="animationsEnabled">Animações Ativadas</label>
+                                <label class="switch">
+                                    <input type="checkbox" id="animationsEnabled" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-item toggle-item">
+                                <label for="autoSaveEnabled">Auto-Salvar</label>
+                                <label class="switch">
+                                    <input type="checkbox" id="autoSaveEnabled" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="settings-section">
+                        <h3>Backup e Dados</h3>
+                        <div class="settings-actions">
+                            <button class="btn btn-primary" onclick="exportAllData()">
+                                💾 Exportar Todos os Dados
+                            </button>
+                            <button class="btn btn-secondary" onclick="document.getElementById('importFile').click()">
+                                📥 Importar Dados
+                            </button>
+                            <input type="file" id="importFile" accept=".json,.csv" style="display: none" onchange="importData(event)">
+                            <button class="btn btn-warning" onclick="resetSettings()">
+                                🔄 Resetar Configurações
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeSettings()">Cancelar</button>
+                    <button class="btn btn-success" onclick="saveSettings()">Salvar Configurações</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal de Relatórios -->
+        <div id="reportsModal" class="modal">
+            <div class="modal-content modal-large">
+                <div class="modal-header">
+                    <h2>📊 Relatórios Avançados</h2>
+                    <button class="modal-close" onclick="closeReports()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="reports-tabs">
+                        <button class="tab-btn active" onclick="switchReportTab('overview')">Visão Geral</button>
+                        <button class="tab-btn" onclick="switchReportTab('monthly')">Mensal</button>
+                        <button class="tab-btn" onclick="switchReportTab('trends')">Tendências</button>
+                        <button class="tab-btn" onclick="switchReportTab('compare')">Comparação</button>
+                    </div>
+                    
+                    <div id="reportOverview" class="report-section active">
+                        <div class="charts-grid">
+                            <div class="chart-container">
+                                <h4>Horas por Mês</h4>
+                                <canvas id="monthlyHoursChart"></canvas>
+                            </div>
+                            <div class="chart-container">
+                                <h4>Horas Extras vs Negativas</h4>
+                                <canvas id="extraNegativeChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-icon">📅</div>
+                                <div class="stat-info">
+                                    <div class="stat-value" id="statTotalDays">0</div>
+                                    <div class="stat-label">Total de Dias</div>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">⏱️</div>
+                                <div class="stat-info">
+                                    <div class="stat-value" id="statTotalHours">0:00</div>
+                                    <div class="stat-label">Horas Totais</div>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">📈</div>
+                                <div class="stat-info">
+                                    <div class="stat-value" id="statAvgHours">0:00</div>
+                                    <div class="stat-label">Média Diária</div>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">💰</div>
+                                <div class="stat-info">
+                                    <div class="stat-value" id="statExtraValue">R$ 0,00</div>
+                                    <div class="stat-label">Valor Extras</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="reportMonthly" class="report-section">
+                        <div class="month-selector">
+                            <label for="reportMonth">Mês de Referência:</label>
+                            <input type="month" id="reportMonth" onchange="updateMonthlyReport()">
+                        </div>
+                        <div class="monthly-stats">
+                            <div class="monthly-stat">
+                                <h4>Dias Úteis</h4>
+                                <div class="stat-value" id="monthWorkDays">0</div>
+                            </div>
+                            <div class="monthly-stat">
+                                <h4>Dias Trab.</h4>
+                                <div class="stat-value" id="monthDaysWorked">0</div>
+                            </div>
+                            <div class="monthly-stat">
+                                <h4>Horas Trab.</h4>
+                                <div class="stat-value" id="monthTotalHours">0:00</div>
+                            </div>
+                            <div class="monthly-stat">
+                                <h4>Horas Extras</h4>
+                                <div class="stat-value" id="monthExtraHours">0:00</div>
+                            </div>
+                        </div>
+                        <div class="chart-container full-width">
+                            <h4>Distribuição de Horas no Mês</h4>
+                            <canvas id="dailyHoursChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div id="reportTrends" class="report-section">
+                        <div class="trend-filters">
+                            <label for="trendPeriod">Período:</label>
+                            <select id="trendPeriod" onchange="updateTrendReport()">
+                                <option value="3">Últimos 3 meses</option>
+                                <option value="6">Últimos 6 meses</option>
+                                <option value="12">Último ano</option>
+                            </select>
+                        </div>
+                        <div class="chart-container full-width">
+                            <h4>Evolução de Horas Extras</h4>
+                            <canvas id="trendChart"></canvas>
+                        </div>
+                        <div class="insights-panel" id="insightsPanel">
+                            <h4>💡 Insights</h4>
+                            <div id="insightsContent"></div>
+                        </div>
+                    </div>
+                    
+                    <div id="reportCompare" class="report-section">
+                        <div class="compare-selectors">
+                            <div class="compare-item">
+                                <label for="compareMonth1">Período 1:</label>
+                                <input type="month" id="compareMonth1" onchange="updateComparison()">
+                            </div>
+                            <div class="compare-item">
+                                <label for="compareMonth2">Período 2:</label>
+                                <input type="month" id="compareMonth2" onchange="updateComparison()">
+                            </div>
+                        </div>
+                        <div class="comparison-results" id="comparisonResults">
+                            <div class="comparison-chart">
+                                <canvas id="comparisonChart"></canvas>
+                            </div>
+                            <div class="comparison-summary" id="comparisonSummary"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="export-section">
+                        <h3>Exportar Relatório</h3>
+                        <div class="export-buttons">
+                            <button class="btn btn-primary" onclick="exportReportPDF()">
+                                📄 Exportar PDF
+                            </button>
+                            <button class="btn btn-success" onclick="exportReportExcel()">
+                                📊 Exportar Excel
+                            </button>
+                            <button class="btn btn-secondary" onclick="exportReportJSON()">
+                                📋 Exportar JSON
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Visualização em Cards (Mobile) -->
+        <div id="cardsView" class="cards-view" style="display: none;">
+            <div id="cardsContainer"></div>
         </div>
     </div>
     <script src="script.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
 </body>
 </html>
