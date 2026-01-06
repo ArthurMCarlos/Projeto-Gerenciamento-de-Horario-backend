@@ -2,67 +2,333 @@ const SALARY = 1625.75;
 const STANDARD_HOURS = 8 * 60 + 48; 
 const SATURDAY_WEEK_HOURS = 8 * 60; 
 
+// Configurações de retry e heartbeat
+const RETRY_CONFIG = {
+    maxAttempts: 3,
+    initialDelay: 1000,
+    maxDelay: 10000,
+    backoffMultiplier: 2
+};
+
+const HEARTBEAT_INTERVAL = 120000; // 2 minutos em milissegundos
+
 let workDays = [];
 let filteredWorkDays = [];
 let currentFilter = '';
+let heartbeatInterval = null;
+let isServerAwake = true;
+
+// Adiciona estilos CSS dinamicamente
+const styleElement = document.createElement('style');
+styleElement.textContent = `
+    .notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        border-radius: 8px;
+        color: white;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 14px;
+        z-index: 10000;
+        max-width: 350px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        transform: translateX(120%);
+        transition: transform 0.3s ease;
+    }
+    
+    .notification.show {
+        transform: translateX(0);
+    }
+    
+    .notification.fade-out {
+        opacity: 0;
+        transform: translateX(120%);
+    }
+    
+    .notification.error {
+        background: #e74c3c;
+    }
+    
+    .notification.success {
+        background: #27ae60;
+    }
+    
+    .notification.info {
+        background: #3498db;
+    }
+    
+    .notification.warning {
+        background: #f39c12;
+    }
+    
+    .loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+    }
+    
+    .loading-overlay p {
+        color: white;
+        margin-top: 15px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 14px;
+    }
+    
+    .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid rgba(255, 255, 255, 0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+    
+    .connection-status {
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        z-index: 1000;
+    }
+    
+    .connection-status.connected {
+        background: #27ae60;
+        color: white;
+    }
+    
+    .connection-status.disconnected {
+        background: #e74c3c;
+        color: white;
+    }
+`;
+document.head.appendChild(styleElement);
+
+// Função wrapper para requisições com retry automático
+async function apiRequest(url, options = {}, retryCount = 0) {
+    const delay = Math.min(
+        RETRY_CONFIG.initialDelay * Math.pow(RETRY_CONFIG.backoffMultiplier, retryCount),
+        RETRY_CONFIG.maxDelay
+    );
+    
+    try {
+        // Adiciona timestamp para evitar cache
+        const cacheBuster = url.includes('?') ? '&' : '?';
+        const cacheBustedUrl = `${url}${cacheBuster}_=${Date.now()}`;
+        
+        const response = await fetch(cacheBustedUrl, {
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-cache',
+                ...options.headers
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        // Verifica se há conteúdo para retornar
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+            return await response.json();
+        }
+        return { success: true };
+        
+    } catch (error) {
+        console.warn(`Tentativa ${retryCount + 1} falhou para ${url}:`, error.message);
+        
+        if (retryCount < RETRY_CONFIG.maxAttempts - 1) {
+            console.log(`Tentando novamente em ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return apiRequest(url, options, retryCount + 1);
+        } else {
+            console.error('Todas as tentativas de reconexão falharam');
+            throw new Error('Falha na conexão. Por favor, recarregue a página.');
+        }
+    }
+}
+
+// Função para verificar conexão com o servidor
+async function checkServerConnection() {
+    try {
+        const response = await fetch('/api/ping?_=' + Date.now());
+        if (response.ok) {
+            const data = await response.json();
+            isServerAwake = data.dbConnected;
+            console.log('Servidor está online:', isServerAwake ? 'Conectado' : 'Desconectado');
+            updateConnectionStatus();
+            return true;
+        }
+        isServerAwake = false;
+        updateConnectionStatus();
+        return false;
+    } catch (error) {
+        console.warn('Perda de conexão detectada:', error.message);
+        isServerAwake = false;
+        updateConnectionStatus();
+        return false;
+    }
+}
+
+// Função para inicializar o heartbeat
+function initializeHeartbeat() {
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+    }
+    
+    // Verifica conexão imediatamente
+    checkServerConnection();
+    
+    heartbeatInterval = setInterval(async () => {
+        try {
+            await checkServerConnection();
+        } catch (error) {
+            console.error('Erro no heartbeat:', error.message);
+            isServerAwake = false;
+            updateConnectionStatus();
+        }
+    }, HEARTBEAT_INTERVAL);
+    
+    console.log('Heartbeat inicializado a cada ' + (HEARTBEAT_INTERVAL / 1000) + ' segundos');
+}
+
+// Função para pausar o heartbeat quando a aba estiver invisível
+function pauseHeartbeatWhenHidden() {
+    if (document.visibilityState === 'hidden') {
+        if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+            heartbeatInterval = null;
+            console.log('Heartbeat pausado (aba inativa)');
+        }
+    } else {
+        if (!heartbeatInterval) {
+            initializeHeartbeat();
+            console.log('Heartbeat retomado');
+        }
+    }
+}
+
+// Funções de feedback visual
+function showNotification(message, type = 'info') {
+    // Remove notificações anteriores do mesmo tipo
+    const existingNotification = document.querySelector(`.notification.${type}`);
+    if (existingNotification) {
+        existingNotification.remove();
+    }
+    
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    // Animação de entrada
+    requestAnimationFrame(() => {
+        notification.classList.add('show');
+    });
+    
+    // Remove após 3 segundos
+    setTimeout(() => {
+        notification.classList.remove('show');
+        notification.classList.add('fade-out');
+        setTimeout(() => notification.remove(), 300);
+    }, 3000);
+}
+
+function showLoading(message = 'Processando...') {
+    hideLoading();
+    const overlay = document.createElement('div');
+    overlay.id = 'loadingOverlay';
+    overlay.className = 'loading-overlay';
+    overlay.innerHTML = `
+        <div class="loading-spinner"></div>
+        <p>${message}</p>
+    `;
+    document.body.appendChild(overlay);
+}
+
+function hideLoading() {
+    const overlay = document.getElementById('loadingOverlay');
+    if (overlay) {
+        overlay.remove();
+    }
+}
 
 document.addEventListener('DOMContentLoaded', async function() {
+    // Inicializa o indicador de status de conexão
+    updateConnectionStatus();
+    
     await loadTheme();
     await loadData();
     populateMonthFilter();
     renderTable();
     updateSummary();
+    
+    // Inicializa o sistema de heartbeat
+    initializeHeartbeat();
+    
+    // Pausa heartbeat quando a aba não está visível
+    document.addEventListener('visibilitychange', pauseHeartbeatWhenHidden);
 });
 
 async function getSavedData() {
     try {
-        const response = await fetch('/api/work-days');
-        if (response.ok) {
-            return await response.json();
-        }
-        console.error('Erro ao buscar dados:', response.status);
-        return [];
+        return await apiRequest('/api/work-days');
     } catch (error) {
-        console.error('Erro ao conectar com API:', error);
+        console.error('Erro ao buscar dados:', error);
+        showNotification('Erro ao carregar dados. Tentando novamente...', 'error');
         return [];
     }
 }
 
 async function saveData() {
     try {
-        const response = await fetch('/api/work-days', {
+        await apiRequest('/api/work-days', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(workDays)
         });
-        
-        if (!response.ok) {
-            console.error('Erro ao salvar dados:', response.status);
-        }
     } catch (error) {
         console.error('Erro ao salvar dados:', error);
+        showNotification('Erro ao salvar dados. Os dados serão salvos quando a conexão for restaurada.', 'error');
+        // Armazena localmente como backup
+        localStorage.setItem('workDaysBackup', JSON.stringify(workDays));
     }
 }
 
 async function saveSettings(settings) {
     try {
-        await fetch('/api/settings', {
+        await apiRequest('/api/settings', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(settings)
         });
     } catch (error) {
         console.error('Erro ao salvar configurações:', error);
+        // Salva localmente como backup
+        localStorage.setItem('settingsBackup', JSON.stringify(settings));
     }
 }
 
 async function getSettings() {
     try {
-        const response = await fetch('/api/settings');
-        if (response.ok) {
-            return await response.json();
-        }
-        return {};
+        return await apiRequest('/api/settings');
     } catch (error) {
         console.error('Erro ao buscar configurações:', error);
         return {};
@@ -88,15 +354,59 @@ async function loadTheme() {
     }
 }
 
+// Função para atualizar indicador de status de conexão
+function updateConnectionStatus() {
+    let statusElement = document.getElementById('connectionStatus');
+    
+    if (!statusElement) {
+        statusElement = document.createElement('div');
+        statusElement.id = 'connectionStatus';
+        statusElement.className = 'connection-status';
+        document.body.appendChild(statusElement);
+    }
+    
+    if (isServerAwake) {
+        statusElement.className = 'connection-status connected';
+        statusElement.textContent = '● Conectado';
+    } else {
+        statusElement.className = 'connection-status disconnected';
+        statusElement.textContent = '● Desconectado';
+    }
+}
+
 async function loadData() {
     try {
         workDays = await getSavedData();
         if (!Array.isArray(workDays)) {
             workDays = [];
         }
+        
+        // Verifica se há backup local
+        const backup = localStorage.getItem('workDaysBackup');
+        if (backup && workDays.length === 0) {
+            const backupData = JSON.parse(backup);
+            if (Array.isArray(backupData) && backupData.length > 0) {
+                showNotification('Dados restaurados do backup local', 'info');
+                workDays = backupData;
+            }
+        }
     } catch (error) {
         console.error('Erro ao carregar dados:', error);
         workDays = [];
+        
+        // Tenta carregar do backup local
+        const backup = localStorage.getItem('workDaysBackup');
+        if (backup) {
+            try {
+                const backupData = JSON.parse(backup);
+                if (Array.isArray(backupData)) {
+                    workDays = backupData;
+                    showNotification('Dados carregados do backup local devido a problemas de conexão', 'warning');
+                }
+            } catch (e) {
+                console.error('Erro ao carregar backup:', e);
+            }
+        }
     }
 }
 
