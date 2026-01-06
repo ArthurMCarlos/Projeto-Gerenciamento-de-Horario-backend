@@ -18,19 +18,26 @@ let userSettings = {
 
 // Configurações de retry e heartbeat
 const RETRY_CONFIG = {
-    maxAttempts: 3,
-    initialDelay: 1000,
-    maxDelay: 10000,
-    backoffMultiplier: 2
+    maxAttempts: 5,
+    initialDelay: 1500,
+    maxDelay: 15000,
+    backoffMultiplier: 2.5
 };
 
-const HEARTBEAT_INTERVAL = 120000; // 2 minutos em milissegundos
+const HEARTBEAT_INTERVAL = 15000; // 15 segundos em milissegundos (mais agressivo)
+const HEARTBEAT_AGGRESSIVE = 5000; // 5 segundos quando detecta problema
+const HEARTBEAT_WAKEUP = 3000; // 3 segundos durante wake-up
 
 let workDays = [];
 let filteredWorkDays = [];
 let currentFilter = '';
 let heartbeatInterval = null;
+let wakeUpInterval = null;
 let isServerAwake = true;
+let lastActivityTime = Date.now();
+let isRecovering = false;
+let consecutiveFailures = 0;
+const MAX_CONSECUTIVE_FAILURES = 3;
 
 // Adiciona estilos CSS dinamicamente
 const styleElement = document.createElement('style');
@@ -187,42 +194,174 @@ async function checkServerConnection() {
         const response = await fetch('/api/ping?_=' + Date.now());
         if (response.ok) {
             const data = await response.json();
+            const wasAwake = !isServerAwake;
             isServerAwake = data.dbConnected;
-            console.log('Servidor está online:', isServerAwake ? 'Conectado' : 'Desconectado');
+            consecutiveFailures = 0;
+            
+            if (wasAwake && !isServerAwake) {
+                console.log('Servidor online, mas banco de dados desconectado');
+            } else if (wasAwake) {
+                console.log('Servidor está online: Conectado');
+            }
             updateConnectionStatus();
             return true;
         }
         isServerAwake = false;
+        consecutiveFailures++;
         updateConnectionStatus();
         return false;
     } catch (error) {
         console.warn('Perda de conexão detectada:', error.message);
         isServerAwake = false;
+        consecutiveFailures++;
         updateConnectionStatus();
+        
+        // Se detectou falha, inicia modo de recuperação agressivo
+        if (consecutiveFailures >= 2 && !isRecovering) {
+            startRecoveryMode();
+        }
         return false;
     }
 }
 
-// Função para inicializar o heartbeat
-function initializeHeartbeat() {
+// Função para iniciar modo de recuperação
+async function startRecoveryMode() {
+    if (isRecovering) return;
+    
+    isRecovering = true;
+    console.log('Iniciando modo de recuperação...');
+    showNotification('Tentando reconectar ao servidor...', 'warning');
+    
+    // Para o heartbeat normal
     if (heartbeatInterval) {
         clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+    }
+    
+    // Inicia tentativas de wake-up rápidas
+    let wakeUpAttempts = 0;
+    const maxWakeUpAttempts = 10;
+    
+    wakeUpInterval = setInterval(async () => {
+        wakeUpAttempts++;
+        console.log(`Tentativa de wake-up ${wakeUpAttempts}/${maxWakeUpAttempts}`);
+        
+        try {
+            const response = await fetch('/api/ping?_=' + Date.now());
+            if (response.ok) {
+                const data = await response.json();
+                if (data.dbConnected) {
+                    // Sucesso! Para o wake-up e volta ao normal
+                    clearInterval(wakeUpInterval);
+                    wakeUpInterval = null;
+                    isServerAwake = true;
+                    isRecovering = false;
+                    consecutiveFailures = 0;
+                    console.log('Recuperação bem-sucedida!');
+                    showNotification('Conexão restaurada!', 'success');
+                    updateConnectionStatus();
+                    initializeHeartbeat();
+                    
+                    // Recarrega dados após recuperação
+                    await loadData();
+                    renderTable();
+                    updateSummary();
+                    return;
+                }
+            }
+        } catch (error) {
+            console.warn(`Wake-up ${wakeUpAttempts} falhou:`, error.message);
+        }
+        
+        // Se excedeu tentativas, diminui frequência
+        if (wakeUpAttempts >= maxWakeUpAttempts) {
+            clearInterval(wakeUpInterval);
+            wakeUpInterval = null;
+            isRecovering = false;
+            console.log('Limite de tentativas de recuperação atingido');
+            showNotification('Não foi possível conectar ao servidor. Tente recarregar a página.', 'error');
+            initializeHeartbeat();
+        }
+    }, HEARTBEAT_WAKEUP);
+}
+
+// Função para inicializar o heartbeat
+function initializeHeartbeat() {
+    // Se já existe um intervalo, limpa antes de criar um novo
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+    }
+    
+    // Se estiver em modo de recuperação, não inicia heartbeat normal
+    if (isRecovering) {
+        console.log('Em modo de recuperação, heartbeat normal não iniciado');
+        return;
     }
     
     // Verifica conexão imediatamente
     checkServerConnection();
     
     heartbeatInterval = setInterval(async () => {
+        // Se estamos em recuperação, não faz heartbeat normal
+        if (isRecovering) return;
+        
         try {
-            await checkServerConnection();
+            const success = await checkServerConnection();
+            if (!success) {
+                // Se falhou, incrementa contador e possivelmente entra em recuperação
+                consecutiveFailures++;
+                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                    startRecoveryMode();
+                }
+            }
         } catch (error) {
             console.error('Erro no heartbeat:', error.message);
             isServerAwake = false;
             updateConnectionStatus();
+            consecutiveFailures++;
+            
+            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                startRecoveryMode();
+            }
         }
     }, HEARTBEAT_INTERVAL);
     
     console.log('Heartbeat inicializado a cada ' + (HEARTBEAT_INTERVAL / 1000) + ' segundos');
+}
+
+// Função proativa para "acordar" o servidor antes de operações críticas
+async function wakeUpServer() {
+    console.log('Wake-up proativo iniciado...');
+    try {
+        const response = await fetch('/api/ping?_=' + Date.now(), {
+            method: 'GET',
+            cache: 'no-store'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            isServerAwake = data.dbConnected;
+            if (isServerAwake) {
+                console.log('Servidor acordado com sucesso');
+                return true;
+            }
+        }
+        return false;
+    } catch (error) {
+        console.warn('Wake-up falhou:', error.message);
+        return false;
+    }
+}
+
+// Função wrapper para requisições que inclui wake-up automático
+async function apiRequestWithWakeUp(url, options = {}, retryCount = 0) {
+    // Primeiro tenta acordar o servidor
+    await wakeUpServer();
+    
+    // Pequena pausa para o servidor processar
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Agora faz a requisição com retry
+    return apiRequest(url, options, retryCount);
 }
 
 // Função para pausar o heartbeat quando a aba estiver invisível
@@ -305,7 +444,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 
 async function getSavedData() {
     try {
-        return await apiRequest('/api/work-days');
+        return await apiRequestWithWakeUp('/api/work-days');
     } catch (error) {
         console.error('Erro ao buscar dados:', error);
         showNotification('Erro ao carregar dados. Tentando novamente...', 'error');
@@ -315,7 +454,7 @@ async function getSavedData() {
 
 async function saveData() {
     try {
-        await apiRequest('/api/work-days', {
+        await apiRequestWithWakeUp('/api/work-days', {
             method: 'POST',
             body: JSON.stringify(workDays)
         });
@@ -329,7 +468,7 @@ async function saveData() {
 
 async function saveSettings(settings) {
     try {
-        await apiRequest('/api/settings', {
+        await apiRequestWithWakeUp('/api/settings', {
             method: 'POST',
             body: JSON.stringify(settings)
         });
@@ -342,7 +481,7 @@ async function saveSettings(settings) {
 // Nova função para salvar configurações do usuário
 async function saveSettingsToAPI(settings) {
     try {
-        await apiRequest('/api/user-settings', {
+        await apiRequestWithWakeUp('/api/user-settings', {
             method: 'POST',
             body: JSON.stringify(settings)
         });
@@ -355,7 +494,7 @@ async function saveSettingsToAPI(settings) {
 
 async function getSettings() {
     try {
-        return await apiRequest('/api/settings');
+        return await apiRequestWithWakeUp('/api/settings');
     } catch (error) {
         console.error('Erro ao buscar configurações:', error);
         return {};
@@ -365,7 +504,7 @@ async function getSettings() {
 // Nova função para buscar configurações do usuário
 async function getUserSettings() {
     try {
-        const response = await apiRequest('/api/user-settings');
+        const response = await apiRequestWithWakeUp('/api/user-settings');
         return response || {};
     } catch (error) {
         console.error('Erro ao buscar configurações do usuário:', error);
