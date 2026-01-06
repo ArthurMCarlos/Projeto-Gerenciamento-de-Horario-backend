@@ -126,6 +126,40 @@ app.get('/api/settings', async (req, res) => {
   }
 });
 
+// Nova rota para configurações do usuário
+app.post('/api/user-settings', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Banco não conectado' });
+    }
+
+    await db.collection('userSettings').replaceOne(
+      { type: 'user_preferences' },
+      { type: 'user_preferences', ...req.body, updatedAt: new Date().toISOString() },
+      { upsert: true }
+    );
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Erro ao salvar configurações do usuário:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/user-settings', async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Banco não conectado' });
+    }
+
+    const settings = await db.collection('userSettings').findOne({ type: 'user_preferences' });
+    res.json(settings || {});
+  } catch (error) {
+    console.error('Erro ao buscar configurações do usuário:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Rota de heartbeat para manter conexão ativa
 app.get('/api/ping', (req, res) => {
   res.json({ 
