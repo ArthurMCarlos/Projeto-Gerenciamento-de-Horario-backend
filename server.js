@@ -14,15 +14,52 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Configurações de conexão com MongoDB
+const mongoOptions = {
+    maxPoolSize: 10,                    // Número máximo de conexões no pool
+    minPoolSize: 2,                     // Número mínimo de conexões mantidas
+    serverSelectionTimeoutMS: 5000,     // Tempo para seleção de servidor
+    socketTimeoutMS: 45000,             // Timeout de operações de socket
+    connectTimeoutMS: 10000,            // Timeout de conexão inicial
+    retryWrites: true,                  // Tentar novamente escritas que falharam
+    retryReads: true,                   // Tentar novamente leituras que falharam
+    keepAlive: true,                    // Manter conexões ativas
+    keepAliveInitialDelay: 30000        // Intervalo de keep-alive em ms
+};
+
 let db;
-MongoClient.connect(process.env.MONGODB_URI)
-  .then(client => {
-    console.log('✅ Conectado ao MongoDB');
-    db = client.db('Project0'); 
-  })
-  .catch(error => {
-    console.error('❌ Erro ao conectar MongoDB:', error);
-  });
+let client;
+
+// Função para conectar ao MongoDB com reconexão automática
+async function connectDB() {
+    try {
+        console.log('Tentando conectar ao MongoDB...');
+        client = new MongoClient(process.env.MONGODB_URI, mongoOptions);
+        
+        await client.connect();
+        
+        db = client.db('Project0');
+        
+        console.log('✅ Conectado ao MongoDB Atlas com sucesso');
+        
+        // Configura eventos de conexão
+        client.on('close', () => {
+            console.warn('Conexão MongoDB fechada. Tentando reconectar...');
+            db = null;
+            // Tenta reconectar automaticamente após 5 segundos
+            setTimeout(connectDB, 5000);
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao conectar ao MongoDB:', error.message);
+        console.log('Tentando reconectar em 5 segundos...');
+        // Tenta reconectar após 5 segundos
+        setTimeout(connectDB, 5000);
+    }
+}
+
+// Inicia a conexão com o banco de dados
+connectDB();
 
 app.get('/api/work-days', async (req, res) => {
   try {
@@ -89,6 +126,15 @@ app.get('/api/settings', async (req, res) => {
     console.error('Erro ao buscar configurações:', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// Rota de heartbeat para manter conexão ativa
+app.get('/api/ping', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    dbConnected: !!db
+  });
 });
 
 app.get('/api/test', (req, res) => {
